@@ -183,7 +183,6 @@ fn query_full_process_image_name(process: HANDLE) -> PathBuf {
 }
 
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn list_processes() -> Vec<ProcessInfo> {
     let mut tcp_server_ports = list_tcp_server_ports_per_process();
     list_process_ids()
