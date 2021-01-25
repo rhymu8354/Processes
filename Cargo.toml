@@ -10,6 +10,10 @@ categories = ["os"]
 keywords = ["process", "cross-platform"]
 repository = "https://github.com/rhymu8354/Processes.git"
 
+[[bin]]
+name = "mock_subprocess"
+path = "bin/mock_subprocess.rs"
+
 [dependencies]
 
 [dev-dependencies]

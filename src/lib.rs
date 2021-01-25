@@ -32,6 +32,7 @@ pub use macos::list_processes;
 
 #[cfg(target_os = "windows")]
 pub use windows::list_processes;
+pub use windows::start_detached;
 
 #[cfg(test)]
 mod tests {
@@ -39,11 +40,132 @@ mod tests {
     use std::{
         convert::TryFrom as _,
         env::current_exe,
+        fs::{
+            create_dir,
+            read_to_string,
+            remove_dir_all,
+            File,
+        },
+        io::{
+            BufRead,
+            BufReader,
+        },
         net::{
             Ipv4Addr,
             TcpListener,
         },
+        path::Path,
+        thread::sleep,
+        time::Duration,
     };
+
+    struct TestArea {}
+
+    impl TestArea {
+        fn new() -> Self {
+            let _ = create_dir(
+                [
+                    current_exe().unwrap().parent().unwrap(),
+                    Path::new("TestArea"),
+                ]
+                .iter()
+                .collect::<PathBuf>(),
+            );
+            Self {}
+        }
+    }
+
+    impl Drop for TestArea {
+        fn drop(&mut self) {
+            let _ = remove_dir_all(
+                [
+                    current_exe().unwrap().parent().unwrap(),
+                    Path::new("TestArea"),
+                ]
+                .iter()
+                .collect::<PathBuf>(),
+            );
+        }
+    }
+
+    #[test]
+    fn detached() {
+        // Start the detached process.
+        let test_area = TestArea::new();
+        let args = vec![
+            String::from("detached"),
+            String::from("abc"),
+            String::from("def ghi"),
+        ];
+        let reported_pid = start_detached(
+            [
+                current_exe().unwrap().parent().unwrap(),
+                Path::new("mock_subprocess"),
+            ]
+            .iter()
+            .collect::<PathBuf>(),
+            &args,
+        );
+        assert_ne!(0, reported_pid);
+
+        // Wait a short period of time so that we don't race the detached
+        // process.
+        sleep(Duration::from_millis(250));
+
+        // Verify process ID matches what the detached process says it has.
+        let pid = read_to_string(
+            [
+                current_exe().unwrap().parent().unwrap(),
+                Path::new("TestArea"),
+                Path::new("pid"),
+            ]
+            .iter()
+            .collect::<PathBuf>(),
+        )
+        .unwrap();
+        let pid = pid.trim().parse::<usize>().unwrap();
+        assert_eq!(pid, reported_pid);
+
+        // Verify command-line arguments given to the detached process match
+        // what it says it received.
+        let lines = BufReader::new(
+            File::open(
+                [
+                    current_exe().unwrap().parent().unwrap(),
+                    Path::new("TestArea"),
+                    Path::new("foo.txt"),
+                ]
+                .iter()
+                .collect::<PathBuf>(),
+            )
+            .unwrap(),
+        )
+        .lines()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+        assert_eq!(args, lines);
+
+        // Linux and Mac targets also know what file handles are open, so check
+        // to make sure none are in the detached process.
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            0,
+            read_to_string(
+                [
+                    current_exe().unwrap().parent().unwrap(),
+                    Path::new("TestArea"),
+                    Path::new("handles")
+                ]
+                .iter()
+                .collect::<PathBuf>()
+            )
+            .unwrap()
+            .trim()
+            .parse::<usize>()
+            .unwrap()
+        );
+        drop(test_area);
+    }
 
     #[test]
     fn find_self_by_image_path() {

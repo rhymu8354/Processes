@@ -1,15 +1,27 @@
 use crate::ProcessInfo;
 use std::{
+    borrow::Cow,
     collections::{
         HashMap,
         HashSet,
     },
     ffi::{
         c_void,
+        OsStr,
         OsString,
     },
-    os::windows::ffi::OsStringExt as _,
-    path::PathBuf,
+    iter::{
+        once,
+        repeat,
+    },
+    os::windows::{
+        ffi::OsStringExt as _,
+        prelude::OsStrExt as _,
+    },
+    path::{
+        Path,
+        PathBuf,
+    },
 };
 
 type HANDLE = *const c_void;
@@ -18,6 +30,7 @@ const PROCESS_VM_READ: u32 = 0x0010;
 const NO_ERROR: u32 = 0;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const MIB_TCP_STATE_LISTEN: u32 = 2;
+const DETACHED_PROCESS: u32 = 0x0000_0008;
 
 #[repr(C)]
 #[allow(non_snake_case)]
@@ -61,6 +74,18 @@ extern "C" {
         lpExeName: *mut u16,
         lpdwSize: *mut u32,
     ) -> bool;
+    fn CreateProcessW(
+        lpApplicationName: *const u16,
+        lpCommandLine: *const u16,
+        lpProcessAttributes: *const SECURITY_ATTRIBUTES,
+        lpThreadAttributes: *const SECURITY_ATTRIBUTES,
+        bInheritHandles: bool,
+        dwCreationFlags: u32,
+        lpEnvironment: *const c_void,
+        lpCurrentDirectory: *const u16,
+        lpStartupInfo: *const STARTUPINFOW,
+        lpProcessInformation: *mut PROCESS_INFORMATION,
+    ) -> bool;
 }
 
 #[link(name = "Iphlpapi")]
@@ -70,6 +95,46 @@ extern "C" {
         SizePointer: *mut u32,
         Order: bool,
     ) -> u32;
+}
+
+#[allow(non_snake_case)]
+#[repr(C)]
+struct STARTUPINFOW {
+    cb: u32,
+    lpReserved: *const u16,
+    lpDesktop: *const u16,
+    lpTitle: *const u16,
+    dwX: u32,
+    dwY: u32,
+    dwXSize: u32,
+    dwYSize: u32,
+    dwXCountChars: u32,
+    dwYCountChars: u32,
+    dwFillAttribute: u32,
+    dwFlags: u32,
+    wShowWindow: u16,
+    cbReserved2: u16,
+    lpReserved2: *const u8,
+    hStdInput: HANDLE,
+    hStdOutput: HANDLE,
+    hStdError: HANDLE,
+}
+
+#[allow(non_snake_case)]
+#[repr(C)]
+struct PROCESS_INFORMATION {
+    hProcess: HANDLE,
+    hThread: HANDLE,
+    dwProcessId: u32,
+    dwThreadId: u32,
+}
+
+#[allow(non_snake_case)]
+#[repr(C)]
+struct SECURITY_ATTRIBUTES {
+    nLength: u32,
+    lpSecurityDescriptor: *const c_void,
+    bInheritHandle: bool,
 }
 
 struct SafeHandle(HANDLE);
@@ -195,4 +260,132 @@ pub fn list_processes() -> Vec<ProcessInfo> {
             tcp_server_ports: tcp_server_ports.remove(&id).unwrap_or_default(),
         })
         .collect()
+}
+
+fn make_command_line<P, A, S>(
+    path: P,
+    args: A,
+) -> Vec<u16>
+where
+    P: AsRef<Path>,
+    A: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command_line = Vec::new();
+    let path = path.as_ref().as_os_str().encode_wide().collect::<Vec<_>>();
+    if path.iter().any(|ch| *ch == 0x0022 /* '"' */) {
+        command_line.push(0x0022);
+        command_line.extend(path.iter());
+        command_line.push(0x0022);
+    } else {
+        command_line.extend(path.iter());
+    }
+    for arg in args {
+        command_line.push(0x0020 /* ' ' */);
+        let arg = arg.as_ref().encode_wide().collect::<Vec<_>>();
+        if arg
+            .iter()
+            .any(|ch| [0x0020, 0x0009, 0x000A, 0x000B, 0x0022].contains(ch))
+        {
+            command_line.push(0x0022);
+            let mut slash_count = 0;
+            for ch in arg {
+                if ch == 0x005C
+                // '\\'
+                {
+                    slash_count += 1;
+                } else {
+                    command_line.extend(repeat(0x005C).take(slash_count));
+                    if ch == 0x0022 {
+                        command_line
+                            .extend(repeat(0x005C).take(slash_count + 1));
+                    }
+                    command_line.push(ch);
+                    slash_count = 0;
+                }
+            }
+            if slash_count > 0 {
+                command_line.extend(repeat(0x005C).take(slash_count * 2));
+            }
+            command_line.push(0x0022);
+        } else {
+            command_line.extend(arg.iter());
+        }
+    }
+    command_line.push(0);
+    command_line
+}
+
+pub fn start_detached<P, A, S>(
+    path: P,
+    args: A,
+) -> usize
+where
+    P: AsRef<Path>,
+    A: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    // Add file extension because that part is platform-specific.
+    let mut path = Cow::from(path.as_ref());
+    match path.as_ref().extension() {
+        Some(extension) if extension == "exe" => {},
+        _ => {
+            path.to_mut().set_extension("exe");
+        },
+    }
+
+    let command_line = make_command_line(&path, args);
+
+    // Launch program.
+    #[allow(clippy::cast_possible_truncation)]
+    let si = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        lpReserved: std::ptr::null(),
+        lpDesktop: std::ptr::null(),
+        lpTitle: std::ptr::null(),
+        dwX: 0,
+        dwY: 0,
+        dwXSize: 0,
+        dwYSize: 0,
+        dwXCountChars: 0,
+        dwYCountChars: 0,
+        dwFillAttribute: 0,
+        dwFlags: 0,
+        wShowWindow: 0,
+        cbReserved2: 0,
+        lpReserved2: std::ptr::null(),
+        hStdInput: std::ptr::null(),
+        hStdOutput: std::ptr::null(),
+        hStdError: std::ptr::null(),
+    };
+    let mut pi = PROCESS_INFORMATION {
+        hProcess: std::ptr::null(),
+        hThread: std::ptr::null(),
+        dwProcessId: 0,
+        dwThreadId: 0,
+    };
+    let path =
+        path.as_os_str().encode_wide().chain(once(0)).collect::<Vec<_>>();
+    let success = unsafe {
+        CreateProcessW(
+            path.as_ptr(),
+            command_line.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            false,
+            DETACHED_PROCESS,
+            std::ptr::null(),
+            std::ptr::null(),
+            &si,
+            &mut pi,
+        )
+    };
+    if success {
+        unsafe {
+            CloseHandle(pi.hProcess);
+        }
+        pi.dwProcessId as usize
+    } else {
+        0
+    }
 }
