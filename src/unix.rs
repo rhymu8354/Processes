@@ -9,6 +9,7 @@ use std::{
     path::Path,
 };
 
+#[allow(clippy::similar_names)]
 pub fn start_detached<P, A, S>(
     path: P,
     args: A,

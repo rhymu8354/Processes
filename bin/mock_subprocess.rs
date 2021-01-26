@@ -20,6 +20,28 @@ use std::{
     process::exit,
 };
 
+#[cfg(target_os = "macos")]
+const PROC_PIDLISTFDS: libc::c_int = 1;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct proc_fdinfo {
+    proc_fd: i32,
+    proc_fdtype: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "proc")]
+extern "C" {
+    fn proc_pidinfo(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+        arg: u64,
+        buffer: *mut libc::c_void,
+        buffer_size: libc::c_int,
+    ) -> libc::c_int;
+}
+
 fn record_our_pid<P: AsRef<Path>>(path: P) {
     let mut f = File::create(
         [path.as_ref(), Path::new("pid")].iter().collect::<PathBuf>(),
@@ -80,7 +102,51 @@ fn record_our_handles<P: AsRef<Path>>(path: P) {
 }
 
 #[cfg(target_os = "macos")]
-fn record_our_handles<P: AsRef<Path>>(path: P) {}
+fn record_our_handles<P: AsRef<Path>>(path: P) {
+    let pid = unsafe { libc::getpid() };
+    let buffer_size = unsafe {
+        proc_pidinfo(pid, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
+    };
+    if buffer_size < 0 {
+        return;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let mut fds = vec![
+        proc_fdinfo::default();
+        buffer_size as usize / std::mem::size_of::<proc_fdinfo>()
+    ];
+    let buffer_size = unsafe {
+        proc_pidinfo(
+            pid,
+            PROC_PIDLISTFDS,
+            0,
+            fds.as_mut_ptr() as *mut libc::c_void,
+            buffer_size,
+        )
+    };
+    if buffer_size < 0 {
+        return;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    fds.truncate(buffer_size as usize / std::mem::size_of::<proc_fdinfo>());
+    let report = fds
+        .into_iter()
+        .filter_map(|fd| {
+            if fd.proc_fd > 2 {
+                Some(format!("{}", fd.proc_fd))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut f = File::create(
+        [path.as_ref(), Path::new("handles")].iter().collect::<PathBuf>(),
+    )
+    .unwrap();
+    for line in report {
+        let _ = writeln!(&mut f, "{}", line);
+    }
+}
 
 #[allow(clippy::too_many_lines)]
 fn main() {

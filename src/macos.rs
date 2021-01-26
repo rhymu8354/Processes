@@ -328,7 +328,7 @@ extern "C" {
         pid: c_int,
         flavor: c_int,
         arg: u64,
-        buffer: *const c_void,
+        buffer: *mut c_void,
         buffersize: c_int,
     ) -> c_int;
     fn proc_pidpath(
@@ -415,8 +415,9 @@ fn tcp_server_port<T: Borrow<socket_fdinfo>>(socket_info: T) -> Option<u16> {
 }
 
 fn process_tcp_server_ports(pid: pid_t) -> HashSet<u16> {
-    let buffer_size =
-        unsafe { proc_pidinfo(pid, PROC_PIDLISTFDS, 0, std::ptr::null(), 0) };
+    let buffer_size = unsafe {
+        proc_pidinfo(pid, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
+    };
     if buffer_size < 0 {
         return HashSet::default();
     }
@@ -430,7 +431,7 @@ fn process_tcp_server_ports(pid: pid_t) -> HashSet<u16> {
             pid,
             PROC_PIDLISTFDS,
             0,
-            fds.as_mut_ptr() as *const c_void,
+            fds.as_mut_ptr() as *mut libc::c_void,
             buffer_size,
         )
     };
@@ -460,5 +461,35 @@ pub fn list_processes() -> Vec<ProcessInfo> {
 }
 
 pub fn close_all_files_except(keep_open: libc::c_int) {
-    todo!()
+    let pid = unsafe { libc::getpid() };
+    let buffer_size = unsafe {
+        proc_pidinfo(pid, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
+    };
+    if buffer_size < 0 {
+        return;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let mut fds = vec![
+        proc_fdinfo::default();
+        buffer_size as usize / std::mem::size_of::<proc_fdinfo>()
+    ];
+    let buffer_size = unsafe {
+        proc_pidinfo(
+            pid,
+            PROC_PIDLISTFDS,
+            0,
+            fds.as_mut_ptr() as *mut libc::c_void,
+            buffer_size,
+        )
+    };
+    if buffer_size < 0 {
+        return;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    fds.truncate(buffer_size as usize / std::mem::size_of::<proc_fdinfo>());
+    for fd in fds {
+        if fd.proc_fd != keep_open {
+            unsafe { libc::close(fd.proc_fd) };
+        }
+    }
 }
