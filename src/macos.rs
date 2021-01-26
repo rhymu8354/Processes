@@ -444,8 +444,7 @@ fn process_tcp_server_ports(pid: pid_t) -> HashSet<u16> {
         .collect()
 }
 
-#[must_use]
-pub fn list_processes() -> Vec<ProcessInfo> {
+pub fn list_processes_internal() -> Vec<ProcessInfo> {
     list_process_ids()
         .into_iter()
         .map(|pid| {

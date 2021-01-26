@@ -253,7 +253,7 @@ fn query_full_process_image_name(process: HANDLE) -> PathBuf {
 }
 
 #[must_use]
-pub fn list_processes() -> Vec<ProcessInfo> {
+pub fn list_processes_internal() -> Vec<ProcessInfo> {
     let mut tcp_server_ports = list_tcp_server_ports_per_process();
     list_process_ids()
         .into_iter()
@@ -326,7 +326,7 @@ where
     command_line
 }
 
-pub fn start_detached<P, A, S>(
+pub fn start_detached_internal<P, A, S>(
     path: P,
     args: A,
 ) -> usize
@@ -400,7 +400,7 @@ where
     }
 }
 
-pub fn kill(pid: usize) {
+pub fn kill_internal(pid: usize) {
     #[allow(clippy::cast_possible_truncation)]
     let process_handle =
         unsafe { OpenProcess(PROCESS_TERMINATE, false, pid as u32) };

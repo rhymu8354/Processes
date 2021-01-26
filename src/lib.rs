@@ -1,53 +1,105 @@
+//! This crate provides several free functions for managing other processes
+//! running in the host operating system:
+//!
+//! * [`list_processes`] &ndash; poll the operating system for a list of the
+//!   current running processes, along with paths to the primary image
+//!   (executable file) of each process and the set of TCP server ports
+//!   currently bound by each process
+//! * [`start_detached`] &ndash; start a new process that inherits no file
+//!   handles and operates in its own session
+//! * [`kill`] &ndash; terminate another process
+//!
+//! [`list_processes`]: fn.list_processes.html
+//! [`start_detached`]: fn.start_detached.html
+//! [`kill`]: fn.kill.html
+
 #![warn(clippy::pedantic)]
-// TODO: Remove this once ready to publish.
-#![allow(clippy::missing_errors_doc)]
-// TODO: Uncomment this once ready to publish.
-//#![warn(missing_docs)]
+#![warn(missing_docs)]
 
 #[cfg(target_os = "linux")]
 mod linux;
-
 #[cfg(target_os = "macos")]
 mod macos;
-
 #[cfg(unix)]
 mod unix;
-
 #[cfg(target_os = "windows")]
 mod windows;
 
 use std::{
     collections::HashSet,
-    path::PathBuf,
+    ffi::OsStr,
+    path::{
+        Path,
+        PathBuf,
+    },
 };
 
+/// This holds information about one running process managed by the operating
+/// system.
 pub struct ProcessInfo {
+    /// This is the identifier of the process, which can be given to [`kill`]
+    /// to terminate the process.
+    ///
+    /// [`kill`]: fn.kill.html
     pub id: usize,
+
+    /// This is the path in the filesystem of the primary image (executable
+    /// file) of the process.
     pub image: PathBuf,
+
+    /// This is the set of TCP server ports currently bound by the process.
     pub tcp_server_ports: HashSet<u16>,
 }
 
 #[cfg(target_os = "linux")]
 use linux::close_all_files_except;
 #[cfg(target_os = "linux")]
-pub use linux::list_processes;
+use linux::list_processes_internal;
 
 #[cfg(target_os = "macos")]
 use macos::close_all_files_except;
 #[cfg(target_os = "macos")]
-pub use macos::list_processes;
+use macos::list_processes_internal;
 
 #[cfg(unix)]
-pub use unix::kill;
+use unix::kill_internal;
 #[cfg(unix)]
-pub use unix::start_detached;
+use unix::start_detached_internal;
 
 #[cfg(target_os = "windows")]
-pub use windows::kill;
+use windows::kill_internal;
 #[cfg(target_os = "windows")]
-pub use windows::list_processes;
+use windows::list_processes_internal;
 #[cfg(target_os = "windows")]
-pub use windows::start_detached;
+use windows::start_detached_internal;
+
+/// Poll the operating system to return information about all currently running
+/// processes.
+#[must_use]
+pub fn list_processes() -> Vec<ProcessInfo> {
+    list_processes_internal()
+}
+
+/// Start a new process that inherits no file handles and runs in an
+/// independent session.  The caller provides the `path` of the primary
+/// executable to run in the new process, as well as any `args` (arguments)
+/// to provide the new process on its command line.
+pub fn start_detached<P, A, S>(
+    path: P,
+    args: A,
+) -> usize
+where
+    P: AsRef<Path>,
+    A: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    start_detached_internal(path, args)
+}
+
+/// Terminate the process with the given `pid` (process identifier).
+pub fn kill(pid: usize) {
+    kill_internal(pid)
+}
 
 #[cfg(test)]
 mod tests {

@@ -10,7 +10,7 @@ use std::{
 };
 
 #[allow(clippy::similar_names)]
-pub fn start_detached<P, A, S>(
+pub fn start_detached_internal<P, A, S>(
     path: P,
     args: A,
 ) -> usize
@@ -97,7 +97,7 @@ where
     }
 }
 
-pub fn kill(pid: usize) {
+pub fn kill_internal(pid: usize) {
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::cast_possible_wrap)]
     unsafe {
