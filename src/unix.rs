@@ -98,5 +98,9 @@ where
 }
 
 pub fn kill(pid: usize) {
-    unsafe { libc::kill(pid, libc::SIGKILL) };
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_wrap)]
+    unsafe {
+        libc::kill(pid as i32, libc::SIGKILL)
+    };
 }
