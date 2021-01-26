@@ -276,43 +276,48 @@ where
     A: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    const DOUBLE_QUOTE: u16 = 0x0022;
+    const SPACE: u16 = 0x0020;
+    const HORIZONTAL_TAB: u16 = 0x0009;
+    const LINEFEED: u16 = 0x000A;
+    const VERTICAL_TAB: u16 = 0x000B;
+    const BACKSLASH: u16 = 0x005C;
     let mut command_line = Vec::new();
     let path = path.as_ref().as_os_str().encode_wide().collect::<Vec<_>>();
-    if path.iter().any(|ch| *ch == 0x0022 /* '"' */) {
-        command_line.push(0x0022);
+    if path.iter().any(|ch| *ch == DOUBLE_QUOTE) {
+        command_line.push(DOUBLE_QUOTE);
         command_line.extend(path.iter());
-        command_line.push(0x0022);
+        command_line.push(DOUBLE_QUOTE);
     } else {
         command_line.extend(path.iter());
     }
     for arg in args {
-        command_line.push(0x0020 /* ' ' */);
+        command_line.push(SPACE);
         let arg = arg.as_ref().encode_wide().collect::<Vec<_>>();
-        if arg
-            .iter()
-            .any(|ch| [0x0020, 0x0009, 0x000A, 0x000B, 0x0022].contains(ch))
-        {
-            command_line.push(0x0022);
+        let needs_quoting = arg.iter().any(|ch| {
+            [SPACE, HORIZONTAL_TAB, LINEFEED, VERTICAL_TAB, DOUBLE_QUOTE]
+                .contains(ch)
+        });
+        if needs_quoting {
+            command_line.push(DOUBLE_QUOTE);
             let mut slash_count = 0;
             for ch in arg {
-                if ch == 0x005C
-                // '\\'
-                {
+                if ch == BACKSLASH {
                     slash_count += 1;
                 } else {
-                    command_line.extend(repeat(0x005C).take(slash_count));
-                    if ch == 0x0022 {
+                    command_line.extend(repeat(BACKSLASH).take(slash_count));
+                    if ch == DOUBLE_QUOTE {
                         command_line
-                            .extend(repeat(0x005C).take(slash_count + 1));
+                            .extend(repeat(BACKSLASH).take(slash_count + 1));
                     }
                     command_line.push(ch);
                     slash_count = 0;
                 }
             }
             if slash_count > 0 {
-                command_line.extend(repeat(0x005C).take(slash_count * 2));
+                command_line.extend(repeat(BACKSLASH).take(slash_count * 2));
             }
-            command_line.push(0x0022);
+            command_line.push(DOUBLE_QUOTE);
         } else {
             command_line.extend(arg.iter());
         }
