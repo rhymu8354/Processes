@@ -16,5 +16,8 @@ path = "bin/mock_subprocess.rs"
 
 [dependencies]
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
-structopt = "0.3"
+uuid = { version = "0.8", features = ["v4"] }

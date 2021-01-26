@@ -458,3 +458,7 @@ pub fn list_processes() -> Vec<ProcessInfo> {
         })
         .collect()
 }
+
+pub fn close_all_files_except(keep_open: libc::c_int) {
+    todo!()
+}

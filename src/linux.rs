@@ -112,3 +112,21 @@ pub fn list_processes() -> Vec<ProcessInfo> {
         })
         .unwrap_or_default()
 }
+
+pub fn close_all_files_except(keep_open: libc::c_int) {
+    if let Ok(dir_entries) = read_dir("/proc/self/fd/") {
+        for dir_entry in dir_entries {
+            if let Some(fd_num) = dir_entry
+                .ok()
+                .and_then(|dir_entry| {
+                    dir_entry.file_name().to_str().map(str::to_owned)
+                })
+                .and_then(|file_name| file_name.parse::<libc::c_int>().ok())
+            {
+                if fd_num != keep_open {
+                    unsafe { libc::close(fd_num) };
+                }
+            };
+        }
+    }
+}

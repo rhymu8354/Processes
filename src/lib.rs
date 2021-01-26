@@ -10,6 +10,9 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(unix)]
+mod unix;
+
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -25,13 +28,21 @@ pub struct ProcessInfo {
 }
 
 #[cfg(target_os = "linux")]
+use linux::close_all_files_except;
+#[cfg(target_os = "linux")]
 pub use linux::list_processes;
 
 #[cfg(target_os = "macos")]
+use macos::close_all_files_except;
+#[cfg(target_os = "macos")]
 pub use macos::list_processes;
+
+#[cfg(unix)]
+pub use unix::start_detached;
 
 #[cfg(target_os = "windows")]
 pub use windows::list_processes;
+#[cfg(target_os = "windows")]
 pub use windows::start_detached;
 
 #[cfg(test)]
@@ -40,6 +51,7 @@ mod tests {
     use std::{
         convert::TryFrom as _,
         env::current_exe,
+        ffi::OsString,
         fs::{
             create_dir,
             read_to_string,
@@ -59,53 +71,61 @@ mod tests {
         time::Duration,
     };
 
-    struct TestArea {}
+    struct TestArea {
+        path: PathBuf,
+    }
 
     impl TestArea {
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
         fn new() -> Self {
-            let _ = create_dir(
-                [
-                    current_exe().unwrap().parent().unwrap(),
-                    Path::new("TestArea"),
-                ]
-                .iter()
-                .collect::<PathBuf>(),
-            );
-            Self {}
+            let path = [
+                current_exe().unwrap().parent().unwrap(),
+                Path::new(&uuid::Uuid::new_v4().to_string()),
+            ]
+            .iter()
+            .collect();
+            let _ = create_dir(&path);
+            Self {
+                path,
+            }
         }
     }
 
     impl Drop for TestArea {
         fn drop(&mut self) {
-            let _ = remove_dir_all(
-                [
-                    current_exe().unwrap().parent().unwrap(),
-                    Path::new("TestArea"),
-                ]
-                .iter()
-                .collect::<PathBuf>(),
-            );
+            let _ = remove_dir_all(&self.path);
         }
     }
 
     #[test]
     fn detached() {
-        // Start the detached process.
+        // Set up the test area where the detached process will write
+        // its report files.
         let test_area = TestArea::new();
-        let args = vec![
-            String::from("detached"),
-            String::from("abc"),
-            String::from("def ghi"),
-        ];
-        let reported_pid = start_detached(
-            [
-                current_exe().unwrap().parent().unwrap(),
-                Path::new("mock_subprocess"),
-            ]
-            .iter()
-            .collect::<PathBuf>(),
-            &args,
+
+        // Find the mock subprocess.
+        let mock_subprocess = PathBuf::from(
+            String::from_utf8_lossy(
+                &std::process::Command::new("cargo")
+                    .args(&["run", "--bin", "mock_subprocess", "--", "where"])
+                    .output()
+                    .unwrap()
+                    .stdout,
+            )
+            .to_string(),
         );
+
+        // Start the detached process.
+        let args = vec![
+            OsString::from("detached"),
+            test_area.path().as_os_str().to_owned(),
+            OsString::from("abc"),
+            OsString::from("def ghi"),
+        ];
+        let reported_pid = start_detached(mock_subprocess, &args);
         assert_ne!(0, reported_pid);
 
         // Wait a short period of time so that we don't race the detached
@@ -114,13 +134,7 @@ mod tests {
 
         // Verify process ID matches what the detached process says it has.
         let pid = read_to_string(
-            [
-                current_exe().unwrap().parent().unwrap(),
-                Path::new("TestArea"),
-                Path::new("pid"),
-            ]
-            .iter()
-            .collect::<PathBuf>(),
+            [test_area.path(), Path::new("pid")].iter().collect::<PathBuf>(),
         )
         .unwrap();
         let pid = pid.trim().parse::<usize>().unwrap();
@@ -130,40 +144,30 @@ mod tests {
         // what it says it received.
         let lines = BufReader::new(
             File::open(
-                [
-                    current_exe().unwrap().parent().unwrap(),
-                    Path::new("TestArea"),
-                    Path::new("foo.txt"),
-                ]
-                .iter()
-                .collect::<PathBuf>(),
+                [test_area.path(), Path::new("args")]
+                    .iter()
+                    .collect::<PathBuf>(),
             )
             .unwrap(),
         )
         .lines()
         .map(Result::unwrap)
+        .map(OsString::from)
         .collect::<Vec<_>>();
         assert_eq!(args, lines);
 
-        // Linux and Mac targets also know what file handles are open, so check
+        // UNIX-like targets also know what file handles are open, so check
         // to make sure none are in the detached process.
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            0,
-            read_to_string(
-                [
-                    current_exe().unwrap().parent().unwrap(),
-                    Path::new("TestArea"),
-                    Path::new("handles")
-                ]
-                .iter()
-                .collect::<PathBuf>()
+        #[cfg(unix)]
+        {
+            let handles = read_to_string(
+                [test_area.path(), Path::new("handles")]
+                    .iter()
+                    .collect::<PathBuf>(),
             )
-            .unwrap()
-            .trim()
-            .parse::<usize>()
-            .unwrap()
-        );
+            .unwrap();
+            assert_eq!(0, handles.len(), "Handles: {}", handles);
+        }
         drop(test_area);
     }
 
