@@ -42,7 +42,7 @@ fn record_our_args<P: AsRef<Path>, A: IntoIterator<Item = OsString>>(
 }
 
 #[cfg(target_os = "windows")]
-fn record_our_handles() {}
+fn record_our_handles<P: AsRef<Path>>(path: P) {}
 
 #[cfg(target_os = "linux")]
 fn record_our_handles<P: AsRef<Path>>(path: P) {
@@ -80,7 +80,7 @@ fn record_our_handles<P: AsRef<Path>>(path: P) {
 }
 
 #[cfg(target_os = "macos")]
-fn record_our_handles() {}
+fn record_our_handles<P: AsRef<Path>>(path: P) {}
 
 #[allow(clippy::too_many_lines)]
 fn main() {
