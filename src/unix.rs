@@ -96,3 +96,7 @@ where
         0
     }
 }
+
+pub fn kill(pid: usize) {
+    unsafe { libc::kill(pid, libc::SIGKILL) };
+}

@@ -31,6 +31,7 @@ const NO_ERROR: u32 = 0;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const MIB_TCP_STATE_LISTEN: u32 = 2;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
+const PROCESS_TERMINATE: u32 = 0x0001;
 
 #[repr(C)]
 #[allow(non_snake_case)]
@@ -68,6 +69,10 @@ extern "C" {
         dwProcessId: u32,
     ) -> HANDLE;
     fn CloseHandle(hObject: HANDLE) -> bool;
+    fn TerminateProcess(
+        hProcess: HANDLE,
+        uExitCode: u32,
+    ) -> bool;
     fn QueryFullProcessImageNameW(
         hProcess: HANDLE,
         dwFlags: u32,
@@ -387,5 +392,18 @@ where
         pi.dwProcessId as usize
     } else {
         0
+    }
+}
+
+pub fn kill(pid: usize) {
+    #[allow(clippy::cast_possible_truncation)]
+    let process_handle =
+        unsafe { OpenProcess(PROCESS_TERMINATE, false, pid as u32) };
+    if process_handle == std::ptr::null() {
+        return;
+    }
+    unsafe {
+        TerminateProcess(process_handle, 255);
+        CloseHandle(process_handle);
     }
 }

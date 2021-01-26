@@ -38,8 +38,12 @@ use macos::close_all_files_except;
 pub use macos::list_processes;
 
 #[cfg(unix)]
+pub use unix::kill;
+#[cfg(unix)]
 pub use unix::start_detached;
 
+#[cfg(target_os = "windows")]
+pub use windows::kill;
 #[cfg(target_os = "windows")]
 pub use windows::list_processes;
 #[cfg(target_os = "windows")]
