@@ -148,7 +148,6 @@ fn record_our_handles<P: AsRef<Path>>(path: P) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 fn main() {
     let args = args_os().skip(1).collect::<Vec<_>>();
     match args.first() {
