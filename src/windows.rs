@@ -91,6 +91,7 @@ extern "C" {
         lpStartupInfo: *const STARTUPINFOW,
         lpProcessInformation: *mut PROCESS_INFORMATION,
     ) -> bool;
+    fn GetLastError() -> u32;
 }
 
 #[link(name = "Iphlpapi")]
@@ -229,7 +230,7 @@ fn open_process(id: u32) -> SafeHandle {
     })
 }
 
-fn query_full_process_image_name(process: HANDLE) -> PathBuf {
+fn query_full_process_image_name(process: HANDLE) -> Option<PathBuf> {
     let mut exe_image_path: Vec<u16> = vec![0; 256];
     #[allow(clippy::cast_possible_truncation)]
     loop {
@@ -243,10 +244,15 @@ fn query_full_process_image_name(process: HANDLE) -> PathBuf {
             )
         } {
             exe_image_path.truncate(actual_length as usize);
-            break PathBuf::from(OsString::from_wide(&exe_image_path))
-                .canonicalize()
-                .unwrap();
+            break Some(
+                PathBuf::from(OsString::from_wide(&exe_image_path))
+                    .canonicalize()
+                    .unwrap(),
+            );
         } else {
+            if unsafe { GetLastError() } != ERROR_INSUFFICIENT_BUFFER {
+                break None;
+            }
             exe_image_path.resize(exe_image_path.len() * 2, 0);
         }
     }
@@ -261,7 +267,8 @@ pub fn list_processes_internal() -> Vec<ProcessInfo> {
             id: id as usize,
             image: open_process(id)
                 .ok()
-                .map_or_else(PathBuf::new, query_full_process_image_name),
+                .and_then(query_full_process_image_name)
+                .unwrap_or_default(),
             tcp_server_ports: tcp_server_ports.remove(&id).unwrap_or_default(),
         })
         .collect()
