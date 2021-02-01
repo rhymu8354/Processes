@@ -53,7 +53,7 @@ fn tcp_server_ports_for_process(
         .unwrap_or_default()
 }
 
-pub fn list_processes_internal() -> Vec<ProcessInfo> {
+pub fn list_processes_internal() -> impl Iterator<Item = ProcessInfo> {
     let mut inodes_to_tcp_server_ports = HashMap::new();
     if let Ok(tcp_table) = File::open("/proc/net/tcp") {
         for line in BufReader::new(tcp_table).lines().filter_map(Result::ok) {

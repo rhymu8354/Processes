@@ -76,7 +76,7 @@ use windows::start_detached_internal;
 /// Poll the operating system to return information about all currently running
 /// processes.
 #[must_use]
-pub fn list_processes() -> Vec<ProcessInfo> {
+pub fn list_processes() -> impl Iterator<Item = ProcessInfo> {
     list_processes_internal()
 }
 
@@ -229,10 +229,10 @@ mod tests {
 
     #[test]
     fn find_self_by_image_path() {
-        let processes = list_processes();
+        let mut processes = list_processes();
         let self_path = current_exe().unwrap().canonicalize().unwrap();
         let self_id = usize::try_from(std::process::id()).unwrap();
-        assert!(processes.iter().any(|process| {
+        assert!(processes.any(|process| {
             process.image == self_path && process.id == self_id
         }));
     }
@@ -241,9 +241,9 @@ mod tests {
     fn find_self_by_tcp_server_port() {
         let tcp = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
         let port = tcp.local_addr().unwrap().port();
-        let processes = list_processes();
+        let mut processes = list_processes();
         let self_id = usize::try_from(std::process::id()).unwrap();
-        assert!(processes.iter().any(|process| {
+        assert!(processes.any(|process| {
             process.tcp_server_ports.contains(&port) && process.id == self_id
         }));
     }

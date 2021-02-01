@@ -258,20 +258,16 @@ fn query_full_process_image_name(process: HANDLE) -> Option<PathBuf> {
     }
 }
 
-#[must_use]
-pub fn list_processes_internal() -> Vec<ProcessInfo> {
+pub fn list_processes_internal() -> impl Iterator<Item = ProcessInfo> {
     let mut tcp_server_ports = list_tcp_server_ports_per_process();
-    list_process_ids()
-        .into_iter()
-        .map(|id| ProcessInfo {
-            id: id as usize,
-            image: open_process(id)
-                .ok()
-                .and_then(query_full_process_image_name)
-                .unwrap_or_default(),
-            tcp_server_ports: tcp_server_ports.remove(&id).unwrap_or_default(),
-        })
-        .collect()
+    list_process_ids().into_iter().map(move |id| ProcessInfo {
+        id: id as usize,
+        image: open_process(id)
+            .ok()
+            .and_then(query_full_process_image_name)
+            .unwrap_or_default(),
+        tcp_server_ports: tcp_server_ports.remove(&id).unwrap_or_default(),
+    })
 }
 
 fn make_command_line<P, A, S>(

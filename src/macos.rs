@@ -444,19 +444,16 @@ fn process_tcp_server_ports(pid: pid_t) -> HashSet<u16> {
         .collect()
 }
 
-pub fn list_processes_internal() -> Vec<ProcessInfo> {
-    list_process_ids()
-        .into_iter()
-        .map(|pid| {
-            #[allow(clippy::cast_sign_loss)]
-            let id = pid as usize;
-            ProcessInfo {
-                id,
-                image: process_image(pid),
-                tcp_server_ports: process_tcp_server_ports(pid),
-            }
-        })
-        .collect()
+pub fn list_processes_internal() -> impl Iterator<Item = ProcessInfo> {
+    list_process_ids().into_iter().map(|pid| {
+        #[allow(clippy::cast_sign_loss)]
+        let id = pid as usize;
+        ProcessInfo {
+            id,
+            image: process_image(pid),
+            tcp_server_ports: process_tcp_server_ports(pid),
+        }
+    })
 }
 
 pub fn close_all_files_except(keep_open: libc::c_int) {
