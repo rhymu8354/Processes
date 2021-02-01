@@ -53,6 +53,19 @@ fn tcp_server_ports_for_process(
         .unwrap_or_default()
 }
 
+struct IteratorMaybeEmpty<I>(Option<I>);
+
+impl<I, T> Iterator for IteratorMaybeEmpty<I>
+where
+    I: Iterator<Item = T>,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.as_mut().and_then(Iterator::next)
+    }
+}
+
 pub fn list_processes_internal() -> impl Iterator<Item = ProcessInfo> {
     let mut inodes_to_tcp_server_ports = HashMap::new();
     if let Ok(tcp_table) = File::open("/proc/net/tcp") {
@@ -83,33 +96,29 @@ pub fn list_processes_internal() -> impl Iterator<Item = ProcessInfo> {
             }
         }
     }
-    read_dir("/proc/")
-        .map(|dir_entries| {
-            dir_entries
-                .filter_map(|dir_entry| {
-                    dir_entry
-                        .ok()
-                        .and_then(|dir_entry| {
-                            dir_entry.file_name().to_str().map(str::to_owned)
-                        })
-                        .and_then(|file_name| file_name.parse::<usize>().ok())
-                        .and_then(|id| {
-                            read_link(format!("/proc/{}/exe", id))
-                                .ok()
-                                .map(|image| (id, image))
-                        })
-                        .map(|(id, image)| ProcessInfo {
-                            id,
-                            image,
-                            tcp_server_ports: tcp_server_ports_for_process(
-                                id,
-                                &inodes_to_tcp_server_ports,
-                            ),
-                        })
+    IteratorMaybeEmpty(read_dir("/proc/").ok().map(move |dir_entries| {
+        dir_entries.filter_map(move |dir_entry| {
+            dir_entry
+                .ok()
+                .and_then(|dir_entry| {
+                    dir_entry.file_name().to_str().map(str::to_owned)
                 })
-                .collect()
+                .and_then(|file_name| file_name.parse::<usize>().ok())
+                .and_then(|id| {
+                    read_link(format!("/proc/{}/exe", id))
+                        .ok()
+                        .map(|image| (id, image))
+                })
+                .map(|(id, image)| ProcessInfo {
+                    id,
+                    image,
+                    tcp_server_ports: tcp_server_ports_for_process(
+                        id,
+                        &inodes_to_tcp_server_ports,
+                    ),
+                })
         })
-        .unwrap_or_default()
+    }))
 }
 
 pub fn close_all_files_except(keep_open: libc::c_int) {

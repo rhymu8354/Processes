@@ -75,7 +75,6 @@ use windows::start_detached_internal;
 
 /// Poll the operating system to return information about all currently running
 /// processes.
-#[must_use]
 pub fn list_processes() -> impl Iterator<Item = ProcessInfo> {
     list_processes_internal()
 }
