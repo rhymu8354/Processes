@@ -1,3 +1,7 @@
+// This lint is suppressed to allow the names of types from the Windows API
+// to be used as-is here.
+#![allow(clippy::upper_case_acronyms)]
+
 use crate::ProcessInfo;
 use std::{
     borrow::Cow,
@@ -196,7 +200,7 @@ fn list_tcp_server_ports_per_process() -> HashMap<u32, HashSet<u16>> {
         tcp_table_buffer.resize(required_tcp_table_size as usize, 0);
         let get_tcp_table_result = unsafe {
             GetTcpTable2(
-                tcp_table_buffer.as_mut_ptr() as *mut MIB_TCPTABLE2,
+                tcp_table_buffer.as_mut_ptr().cast::<MIB_TCPTABLE2>(),
                 &mut required_tcp_table_size,
                 false,
             )
@@ -249,12 +253,11 @@ fn query_full_process_image_name(process: HANDLE) -> Option<PathBuf> {
                     .canonicalize()
                     .unwrap(),
             );
-        } else {
-            if unsafe { GetLastError() } != ERROR_INSUFFICIENT_BUFFER {
-                break None;
-            }
-            exe_image_path.resize(exe_image_path.len() * 2, 0);
         }
+        if unsafe { GetLastError() } != ERROR_INSUFFICIENT_BUFFER {
+            break None;
+        }
+        exe_image_path.resize(exe_image_path.len() * 2, 0);
     }
 }
 
